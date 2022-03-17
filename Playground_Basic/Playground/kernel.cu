@@ -6,15 +6,15 @@
 #include <math.h>
 #include <random>
 
-//__constant__ double device_b = 3.1415*3.1415;
+__constant__ double device_b = 3.1415*3.1415;
 
-__global__ void kernel_compute_distance(double *distance, const double* a, const double* b, size_t N)
+__global__ void kernel_compute_distance(double *distance, const double* a, size_t N)
 {
     int index = blockIdx.x * blockDim.x + threadIdx.x;
-    int stride = blockDim.x * gridDim.x;
-    for (int i = index; i < N; i += stride)
-         //distance[i] = sqrtf(powf(a[i], 2) + powf(b[i],2));
-        distance[i] = a[i] + b[i];
+    //int stride = blockDim.x * gridDim.x;
+    //for (int i = index; i < N; i += stride)
+    if(index < N)
+        distance[index] = sqrtf(a[index]*a[index] + device_b);
 }
 
 void cuda_error(cudaError_t error)
@@ -34,9 +34,8 @@ int main()
     /*
         Host variables
     */
-    const int h_array_size = 100000;
+    const int h_array_size = 100000000;
     static double h_a[h_array_size] = {0};
-    static double h_b[h_array_size] = { 3.1415*3.1415 };
     static double h_distance[h_array_size] = {0};
     
     /*
@@ -51,7 +50,6 @@ int main()
         Device Variables
     */
     double* device_a = 0;
-    double* device_b = 0;
     double* device_distance = 0;
     /*
         Cuda Mallocs    
@@ -59,11 +57,6 @@ int main()
     cudaStatus = cudaMalloc((void**)&device_a, h_array_size * sizeof(double));
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "CUDA - Malloc (a) on global memory failed !\n");
-        cuda_error(cudaStatus);
-    }
-    cudaStatus = cudaMalloc((void**)&device_b, h_array_size * sizeof(double));
-    if(cudaStatus != cudaSuccess) {
-        fprintf(stderr, "CUDA - (b) Malloc on global memory failed !\n");
         cuda_error(cudaStatus);
     }
     cudaStatus = cudaMalloc((void**)&device_distance, h_array_size * sizeof(double));
@@ -80,11 +73,6 @@ int main()
         fprintf(stderr, "CUDA - Memcpy to device (a) failed !\n");
         cuda_error(cudaStatus);
     }
-    cudaStatus = cudaMemcpy(device_b, h_b, h_array_size * sizeof(double), cudaMemcpyHostToDevice);
-    if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "CUDA - Memcpy to device (b) failed !\n");
-        cuda_error(cudaStatus);
-    }
 
     /*
     Kernel Variables
@@ -94,7 +82,7 @@ int main()
     /*
         Execute Kernel
     */
-    kernel_compute_distance <<<dimGrid, dimBlock>>> (device_distance, device_a, device_b, h_array_size);
+    kernel_compute_distance <<<dimGrid, dimBlock>>> (device_distance, device_a, h_array_size);
 
     /*
         Wait kernel ends
