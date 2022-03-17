@@ -6,30 +6,22 @@
 #include <math.h>
 #include <random>
 
-__constant__ double device_b = 3.1415*3.1415;
+//__constant__ double device_b = 3.1415*3.1415;
 
-__device__ double get_distance(double a, double b)
+__global__ void kernel_compute_distance(double *distance, const double* a, const double* b, size_t N)
 {
-    return sqrt(pow(a,2) +pow(b,2));
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    int stride = blockDim.x * gridDim.x;
+    for (int i = index; i < N; i += stride)
+         //distance[i] = sqrtf(powf(a[i], 2) + powf(b[i],2));
+        distance[i] = a[i] + b[i];
 }
-
-__global__ void kernel_compute_distance(double *distance, const double* a, size_t N)
-{
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if(i < N)
-         //distance[i] = get_distance(a[i], device_b); // 1,01 cycles /ns
-         distance[i] = sqrtf(powf(a[i], 2) + device_b); //device_b squared in once in memory 985.34 cycles/µs
-         //distance[i] = sqrtf(powf(a[i], 2) + powf(device_b, 2)); // 1 cycle/ns
-}
-
-
 
 void cuda_error(cudaError_t error)
 {
     fprintf(stderr, "CUDA ERROR - %s\n", cudaGetErrorString(error));
     exit(error);
 }
-
 
 int main()
 {
@@ -42,8 +34,9 @@ int main()
     /*
         Host variables
     */
-    const int h_array_size = 1000000;
+    const int h_array_size = 100000;
     static double h_a[h_array_size] = {0};
+    static double h_b[h_array_size] = { 3.1415*3.1415 };
     static double h_distance[h_array_size] = {0};
     
     /*
@@ -58,6 +51,7 @@ int main()
         Device Variables
     */
     double* device_a = 0;
+    double* device_b = 0;
     double* device_distance = 0;
     /*
         Cuda Mallocs    
@@ -67,15 +61,13 @@ int main()
         fprintf(stderr, "CUDA - Malloc (a) on global memory failed !\n");
         cuda_error(cudaStatus);
     }
-    /*
-    cudaStatus = cudaMalloc((void**)&h_b, sizeof(double));
+    cudaStatus = cudaMalloc((void**)&device_b, h_array_size * sizeof(double));
     if(cudaStatus != cudaSuccess) {
-        fprintf(stderr, "CUDA - Malloc (b) on global memory failed !\n");
+        fprintf(stderr, "CUDA - (b) Malloc on global memory failed !\n");
         cuda_error(cudaStatus);
     }
-    */
     cudaStatus = cudaMalloc((void**)&device_distance, h_array_size * sizeof(double));
-    if(cudaStatus != cudaSuccess) {
+    if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "CUDA - (distance) Malloc on global memory failed !\n");
         cuda_error(cudaStatus);
     }
@@ -88,31 +80,28 @@ int main()
         fprintf(stderr, "CUDA - Memcpy to device (a) failed !\n");
         cuda_error(cudaStatus);
     }
-
-    /*
-    cudaStatus = cudaMemcpy(&device_b, &h_b, sizeof(double), cudaMemcpyHostToDevice);
-    if(cudaStatus != cudaSuccess) {
+    cudaStatus = cudaMemcpy(device_b, h_b, h_array_size * sizeof(double), cudaMemcpyHostToDevice);
+    if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "CUDA - Memcpy to device (b) failed !\n");
         cuda_error(cudaStatus);
     }
-    */
 
     /*
     Kernel Variables
     */
-    dim3 dimGrid = ceil(h_array_size/1024)+1;
     dim3 dimBlock = 1024;
+    dim3 dimGrid = (h_array_size + dimBlock.x - 1) / dimBlock.x;
     /*
         Execute Kernel
     */
-    kernel_compute_distance << <dimGrid, dimBlock >> > (device_distance, device_a, h_array_size);
+    kernel_compute_distance <<<dimGrid, dimBlock>>> (device_distance, device_a, device_b, h_array_size);
 
     /*
         Wait kernel ends
     */
     cudaStatus = cudaDeviceSynchronize();
     if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching addKernel!\n", cudaStatus);
+        fprintf(stderr, "CUDA - Device Synchronize returned error code %d after launching addKernel!\n", cudaStatus);
         cuda_error(cudaStatus);
     }
     printf("Finished !\n");
